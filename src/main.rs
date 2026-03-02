@@ -133,8 +133,8 @@ async fn cmd_install() -> Result<()> {
         // Write to each target
         for target_name in &config.project.targets {
             let paths = target::get_target_paths(target_name)?;
-            target::write_rules(&project_root, &paths, package_name, &processed_rules)?;
-            target::write_skills(&project_root, &paths, package_name, &processed_skills)?;
+            target::write_rules(&project_root, &paths, &processed_rules)?;
+            target::write_skills(&project_root, &paths, &processed_skills)?;
         }
 
         let rule_names: Vec<String> = processed_rules.keys().cloned().collect();
@@ -180,7 +180,7 @@ fn cmd_add(package: &str) -> Result<()> {
     }
 
     // Append to the packages section
-    let new_content = format!("{content}{package} = \"latest\"\n");
+    let new_content = format!("{content}\"{package}\" = \"latest\"\n");
     std::fs::write(&config_path, new_content)?;
     println!("added {package} to acman.toml");
     Ok(())

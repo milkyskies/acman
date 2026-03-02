@@ -49,7 +49,6 @@ impl Config {
 targets = ["claude"]
 
 [packages]
-# onesc/base-rules = "latest"
 "#
     }
 }

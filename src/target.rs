@@ -20,15 +20,13 @@ pub fn get_target_paths(target: &str) -> Result<TargetPaths> {
 pub fn write_rules(
     project_root: &Path,
     target: &TargetPaths,
-    package_name: &str,
     rules: &BTreeMap<String, String>,
 ) -> Result<()> {
     let rules_dir = project_root.join(target.rules_dir);
-    let pkg_dir = rules_dir.join(sanitize_package_name(package_name));
-    std::fs::create_dir_all(&pkg_dir)?;
+    std::fs::create_dir_all(&rules_dir)?;
 
     for (name, content) in rules {
-        let path = pkg_dir.join(format!("{name}.md"));
+        let path = rules_dir.join(format!("{name}.md"));
         std::fs::write(&path, content)?;
     }
     Ok(())
@@ -37,15 +35,12 @@ pub fn write_rules(
 pub fn write_skills(
     project_root: &Path,
     target: &TargetPaths,
-    package_name: &str,
     skills: &BTreeMap<String, BTreeMap<String, String>>,
 ) -> Result<()> {
     let skills_dir = project_root.join(target.skills_dir);
 
     for (skill_name, files) in skills {
-        let skill_dir = skills_dir
-            .join(sanitize_package_name(package_name))
-            .join(skill_name);
+        let skill_dir = skills_dir.join(skill_name);
         std::fs::create_dir_all(&skill_dir)?;
 
         for (file_name, content) in files {
@@ -57,8 +52,4 @@ pub fn write_skills(
         }
     }
     Ok(())
-}
-
-fn sanitize_package_name(name: &str) -> String {
-    name.replace('/', "__")
 }
