@@ -30,14 +30,14 @@ targets = ["claude"]
 
 # pull all directives from a package
 [packages]
-onesc/base-rules = "latest"
+milkyskies/base-rules = "latest"
 
 # pick specific directives and apply overrides
-[packages.onesc/api-rules]
+[packages.milkyskies/api-rules]
 rules = ["api-patterns", "error-handling"]
 skills = ["scaffold-resource"]
 
-[packages.onesc/api-rules.overrides.api-patterns]
+[packages.milkyskies/api-rules.overrides.api-patterns]
 paths = ["apps/api/**"]
 ```
 
