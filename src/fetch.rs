@@ -15,13 +15,18 @@ pub struct FetchedPackage {
 
 pub async fn fetch_package(repo: &str) -> Result<FetchedPackage> {
     let client = reqwest::Client::new();
+    let token = std::env::var("GITHUB_TOKEN").ok();
 
     // Get the default branch's HEAD commit SHA
     let api_url = format!("https://api.github.com/repos/{repo}/commits?per_page=1");
-    let response = client
+    let mut req = client
         .get(&api_url)
         .header("User-Agent", "acman")
-        .header("Accept", "application/vnd.github.v3+json")
+        .header("Accept", "application/vnd.github.v3+json");
+    if let Some(t) = &token {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+    let response = req
         .send()
         .await
         .with_context(|| format!("failed to fetch commits for {repo}"))?;
@@ -29,8 +34,9 @@ pub async fn fetch_package(repo: &str) -> Result<FetchedPackage> {
     let status = response.status();
     if !status.is_success() {
         match status.as_u16() {
-            404 => anyhow::bail!("repository {repo} not found"),
+            404 => anyhow::bail!("repository {repo} not found (if private, set GITHUB_TOKEN)"),
             403 => anyhow::bail!("GitHub API rate limit exceeded — try again later or set GITHUB_TOKEN"),
+            401 => anyhow::bail!("GITHUB_TOKEN is invalid or expired"),
             _ => anyhow::bail!("GitHub API returned {status} for {repo}"),
         }
     }
@@ -45,10 +51,14 @@ pub async fn fetch_package(repo: &str) -> Result<FetchedPackage> {
 
     // Fetch tarball
     let tarball_url = format!("https://api.github.com/repos/{repo}/tarball");
-    let response = client
+    let mut req = client
         .get(&tarball_url)
         .header("User-Agent", "acman")
-        .header("Accept", "application/vnd.github.v3+json")
+        .header("Accept", "application/vnd.github.v3+json");
+    if let Some(t) = &token {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+    let response = req
         .send()
         .await
         .with_context(|| format!("failed to fetch tarball for {repo}"))?;

@@ -13,7 +13,7 @@ use config::{Config, PackageSpec};
 use lock::{Lockfile, LockedPackage};
 
 #[derive(Parser)]
-#[command(name = "acman", about = "Agent Config Manager — manage AI agent directives across projects")]
+#[command(name = "acman", about = "Agent Config Manager — manage AI agent configs across projects")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -32,7 +32,7 @@ enum Command {
         /// Package in user/repo format
         package: String,
     },
-    /// Show installed directives and their override status
+    /// Show installed configs and their override status
     List,
 }
 
