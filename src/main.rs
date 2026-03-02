@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use config::{Config, PackageSpec};
+use config::Config;
 use lock::{Lockfile, LockedPackage};
 
 #[derive(Parser)]
@@ -27,7 +27,7 @@ enum Command {
     Install,
     /// Re-fetch from upstream and reapply
     Update,
-    /// Add a package to acman.toml
+    /// Add a package to acman.toml (fetches repo to discover rules/skills)
     Add {
         /// Package in user/repo format
         package: String,
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         Command::Init => cmd_init()?,
         Command::Install => cmd_install().await?,
         Command::Update => cmd_install().await?,
-        Command::Add { package } => cmd_add(&package)?,
+        Command::Add { package } => cmd_add(&package).await?,
         Command::List => cmd_list()?,
     }
 
@@ -81,53 +81,29 @@ async fn cmd_install() -> Result<()> {
             .await
             .with_context(|| format!("failed to fetch {package_name}"))?;
 
-        // Determine which rules and skills to include
-        let (selected_rules, selected_skills, overrides): (
-            Option<&Vec<String>>,
-            Option<&Vec<String>>,
-            BTreeMap<String, config::Override>,
-        ) = match spec {
-            PackageSpec::Simple(_) => (None, None, BTreeMap::new()),
-            PackageSpec::Detailed(detail) => {
-                let rules = if detail.rules.is_empty() {
-                    None
-                } else {
-                    Some(&detail.rules)
-                };
-                let skills = if detail.skills.is_empty() {
-                    None
-                } else {
-                    Some(&detail.skills)
-                };
-                (rules, skills, detail.overrides.clone())
-            }
-        };
-
-        // Filter and process rules
+        // Only include listed rules and skills
         let mut processed_rules: BTreeMap<String, String> = BTreeMap::new();
-        for (name, content) in &fetched.rules {
-            if let Some(selected) = &selected_rules {
-                if !selected.iter().any(|s| s == name) {
-                    continue;
-                }
-            }
-            let content = if let Some(ovr) = overrides.get(name.as_str()) {
+        for rule_name in &spec.rules {
+            let content = fetched
+                .rules
+                .get(rule_name)
+                .with_context(|| format!("rule '{rule_name}' not found in {package_name}"))?;
+
+            let content = if let Some(ovr) = spec.overrides.get(rule_name) {
                 frontmatter::merge_frontmatter(content, &ovr.fields)?
             } else {
                 content.clone()
             };
-            processed_rules.insert(name.clone(), content);
+            processed_rules.insert(rule_name.clone(), content);
         }
 
-        // Filter skills
         let mut processed_skills: BTreeMap<String, BTreeMap<String, String>> = BTreeMap::new();
-        for (name, files) in &fetched.skills {
-            if let Some(selected) = &selected_skills {
-                if !selected.iter().any(|s| s == name) {
-                    continue;
-                }
-            }
-            processed_skills.insert(name.clone(), files.clone());
+        for skill_name in &spec.skills {
+            let files = fetched
+                .skills
+                .get(skill_name)
+                .with_context(|| format!("skill '{skill_name}' not found in {package_name}"))?;
+            processed_skills.insert(skill_name.clone(), files.clone());
         }
 
         // Write to each target
@@ -161,7 +137,7 @@ async fn cmd_install() -> Result<()> {
     Ok(())
 }
 
-fn cmd_add(package: &str) -> Result<()> {
+async fn cmd_add(package: &str) -> Result<()> {
     let config_path = find_config_path();
     if !config_path.exists() {
         anyhow::bail!("acman.toml not found. Run `acman init` first.");
@@ -175,14 +151,43 @@ fn cmd_add(package: &str) -> Result<()> {
     let content = std::fs::read_to_string(&config_path)?;
 
     // Check if already present
-    if content.contains(&format!("\"{package}\"")) || content.contains(&format!("[packages.{package}")) {
+    if content.contains(&format!("\"{package}\"")) {
         anyhow::bail!("package {package} is already in acman.toml");
     }
 
-    // Append to the packages section
-    let new_content = format!("{content}\"{package}\" = \"latest\"\n");
+    // Fetch the repo to discover available rules and skills
+    println!("fetching {package}...");
+    let fetched = fetch::fetch_package(package)
+        .await
+        .with_context(|| format!("failed to fetch {package}"))?;
+
+    let rules: Vec<&String> = fetched.rules.keys().collect();
+    let skills: Vec<&String> = fetched.skills.keys().collect();
+
+    // Build the TOML entry
+    let mut entry = format!("\n[packages.\"{package}\"]\n");
+
+    if !rules.is_empty() {
+        let rules_str: Vec<String> = rules.iter().map(|r| format!("\"{r}\"")).collect();
+        entry.push_str(&format!("rules = [{}]\n", rules_str.join(", ")));
+    }
+
+    if !skills.is_empty() {
+        let skills_str: Vec<String> = skills.iter().map(|s| format!("\"{s}\"")).collect();
+        entry.push_str(&format!("skills = [{}]\n", skills_str.join(", ")));
+    }
+
+    let new_content = format!("{content}{entry}");
     std::fs::write(&config_path, new_content)?;
-    println!("added {package} to acman.toml");
+
+    println!("added {package} to acman.toml:");
+    for r in &rules {
+        println!("  rule: {r}");
+    }
+    for s in &skills {
+        println!("  skill: {s}");
+    }
+
     Ok(())
 }
 
@@ -205,28 +210,15 @@ fn cmd_list() -> Result<()> {
     for (name, locked) in &lockfile.packages {
         println!("{name} ({})", &locked.commit[..7.min(locked.commit.len())]);
 
-        let has_overrides = config.as_ref().is_some_and(|c| {
-            matches!(
-                c.packages.get(name),
-                Some(PackageSpec::Detailed(d)) if !d.overrides.is_empty()
-            )
-        });
-
         if !locked.rules.is_empty() {
             println!("  rules:");
             for rule in &locked.rules {
-                let override_marker = if has_overrides
-                    && config.as_ref().is_some_and(|c| {
-                        matches!(
-                            c.packages.get(name),
-                            Some(PackageSpec::Detailed(d)) if d.overrides.contains_key(rule)
-                        )
-                    }) {
-                    " (overridden)"
-                } else {
-                    ""
-                };
-                println!("    - {rule}{override_marker}");
+                let override_marker = config
+                    .as_ref()
+                    .and_then(|c| c.packages.get(name))
+                    .is_some_and(|spec| spec.overrides.contains_key(rule));
+                let suffix = if override_marker { " (overridden)" } else { "" };
+                println!("    - {rule}{suffix}");
             }
         }
         if !locked.skills.is_empty() {

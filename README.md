@@ -30,11 +30,13 @@ You can add this to your `~/.zshrc` or `~/.bashrc` to set it permanently. This i
 
 ```
 acman init                  # create acman.toml in current directory
-acman install               # fetch all packages, apply overrides, write to target locations
+acman add <user/repo>       # fetch repo, discover rules/skills, add to acman.toml
+acman install               # fetch packages, apply overrides, write to target locations
 acman update                # re-fetch from upstream and reapply
-acman add <user/repo>       # add a package to acman.toml
 acman list                  # show installed configs and their override status
 ```
+
+`acman add` fetches the repo and auto-populates all available rules and skills into your config. Remove the ones you don't want, then run `acman install`.
 
 ## Config
 
@@ -44,22 +46,19 @@ acman list                  # show installed configs and their override status
 [project]
 targets = ["claude"]
 
-# pull all configs from a package
-[packages]
-milkyskies/base-rules = "latest"
+[packages."milkyskies/base-rules"]
+rules = ["claude-development", "frontend-structure"]
+skills = ["scaffold-resource", "update-rule"]
 
-# pick specific configs and apply overrides
-[packages.milkyskies/api-rules]
+[packages."milkyskies/api-rules"]
 rules = ["api-patterns", "error-handling"]
 skills = ["scaffold-resource"]
 
-[packages.milkyskies/api-rules.overrides.api-patterns]
+[packages."milkyskies/api-rules".overrides.api-patterns]
 paths = ["apps/api/**"]
 ```
 
-`"latest"` fetches everything from the repo's default branch. The table form lets you filter to specific rules/skills and define frontmatter overrides.
-
-Overrides only modify YAML frontmatter. The markdown body is never touched.
+You must list which rules and skills you want from each package. Overrides are optional and only modify YAML frontmatter — the markdown body is never touched.
 
 ## Package repo structure
 
@@ -88,7 +87,7 @@ More targets coming later.
 
 1. Read `acman.toml`
 2. For each package, fetch the repo tarball from GitHub
-3. Filter to selected rules/skills (or include all if `"latest"`)
+3. Include only the listed rules and skills
 4. Merge any frontmatter overrides
 5. Write to the target locations
 6. Write `acman.lock` with commit SHAs for reproducibility
